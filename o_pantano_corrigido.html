@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#14251b">
+<title>O Pântano</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#14251b;color:#fff;font-family:monospace;touch-action:none;overscroll-behavior:none}
+#game{position:relative;width:100%;height:100dvh;min-height:400px;overflow:hidden;touch-action:none;overscroll-behavior:none;user-select:none;-webkit-user-select:none}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;top:9px;left:9px;right:9px;display:flex;justify-content:space-between;gap:6px;pointer-events:none;font-size:12px}.hud span{background:#101a15dd;padding:7px;border:1px solid #a1b78c;border-radius:5px}
+.msg{position:absolute;top:43px;width:100%;text-align:center;color:#fff0a0;text-shadow:1px 2px #000;font-size:12px;pointer-events:none}
+.pad{position:absolute;bottom:18px;left:16px;width:112px;height:112px;border:2px solid #d6e6c4aa;border-radius:50%;background:#243b32bb;touch-action:none;overscroll-behavior:none}
+.knob{position:absolute;left:32px;top:32px;width:44px;height:44px;border-radius:50%;background:#d2dfbccc;border:2px solid white;pointer-events:none}
+.actions{position:absolute;right:12px;bottom:22px;display:flex;flex-direction:column;gap:8px}
+button{font:bold 12px monospace;border:2px solid #b9cb9e;border-radius:8px;background:#293f2ddd;color:white;padding:12px 9px;touch-action:none;user-select:none;-webkit-user-select:none}
+.cover{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;text-align:center;padding:22px;background:#07100bef;touch-action:none}
+.cover h1{font-size:26px;color:#d7e6ac}.cover p{font-size:13px;line-height:1.8}.cover .play{background:#c6d99b;color:#182519;padding:16px 18px;font-size:15px;border:0}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas class="scene"></canvas>
+<div class="hud"><span class="count">BAÚS: 0/20</span><span class="key">CHAVE: NÃO</span></div>
+<div class="msg">Encontra a chave e chega ao castelo!</div>
+<div class="pad"><div class="knob"></div></div>
+<div class="actions"><button class="left">◀ VIRAR</button><button class="right">VIRAR ▶</button><button class="open">ABRIR BAÚ</button></div>
+<div class="cover"><div><h1>O PÂNTANO</h1><p>Encontra a chave amarela escondida nos baús.<br>Depois, chega ao castelo!<br><br>Usa o analógico para andar.</p><button class="play">COMEÇAR A AVENTURA</button></div></div>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('game');if(root.dataset.init)return;root.dataset.init='1';
+const q=s=>root.querySelector(s),canvas=q('canvas'),ctx=canvas.getContext('2d');
+let W=1,H=1,started=false,won=false,x=0,y=0,a=0,key=false,opened=0,dx=0,dy=0,turn=0,active=null,toastEnd=0;
+const chests=[],trees=[];
+function resize(){let r=root.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);W=r.width;H=r.height;canvas.width=W*d;canvas.height=H*d;ctx.setTransform(d,0,0,d,0,0)}
+window.addEventListener('resize',resize);resize();
+function reset(){x=0;y=0;a=0;key=false;opened=0;won=false;chests.length=0;trees.length=0;
+for(let i=0;i<20;i++){let t=Math.random()*Math.PI*2,r=5+Math.random()*20;chests.push({x:Math.sin(t)*r,y:Math.cos(t)*r,open:false,key:Math.random()<.2})}
+if(!chests.some(c=>c.key))chests[Math.floor(Math.random()*20)].key=true;
+for(let i=0;i<45;i++){let t=Math.random()*Math.PI*2,r=7+Math.random()*29;trees.push({x:Math.sin(t)*r,y:Math.cos(t)*r,s:.8+Math.random()*.8})}
+trees.push({x:-3,y:7,s:1.4},{x:3,y:8,s:1.5},{x:-5,y:11,s:1.2},{x:5,y:12,s:1.3},{x:-7,y:15,s:1.4},{x:7,y:16,s:1.4},{x:-4,y:20,s:1.3},{x:4,y:21,s:1.3});updateHUD()}
+function say(s){q('.msg').textContent=s;toastEnd=Date.now()+3000}
+function proj(ox,oy,z=0){let vx=ox-x,vy=oy-y,co=Math.cos(a),si=Math.sin(a),side=vx*co-vy*si,dep=vx*si+vy*co;return{x:W/2+side*260/(dep+2),y:H*.48-z*260/(dep+2)+dep*6,s:260/(dep+2),dep}}
+function poly(points,col){ctx.fillStyle=col;ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill()}
+function draw(){
+ctx.clearRect(0,0,W,H);
+let sky=ctx.createLinearGradient(0,0,0,H*.6);sky.addColorStop(0,'#172e34');sky.addColorStop(1,'#89917a');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H*.55);ctx.fillStyle='#314a34';ctx.fillRect(0,H*.49,W,H*.51);
+poly([{x:0,y:H*.55},{x:W*.4,y:H*.49},{x:W*.6,y:H*.49},{x:W,y:H*.55},{x:W,y:H},{x:0,y:H}],'#3b5037');
+for(let i=0;i<15;i++){ctx.strokeStyle=i%2?'#536947':'#2c4231';ctx.beginPath();ctx.moveTo(0,H*.55+i*H*.032);ctx.lineTo(W,H*.55+i*H*.032);ctx.stroke()}
+let castle=proj(0,30);if(castle.dep>0){let s=Math.max(.5,Math.min(3,castle.s/12)),cx=castle.x,cy=castle.y;ctx.fillStyle='#626657';ctx.fillRect(cx-36*s,cy-40*s,72*s,40*s);ctx.fillRect(cx-48*s,cy-55*s,19*s,55*s);ctx.fillRect(cx+29*s,cy-55*s,19*s,55*s);ctx.fillStyle='#29332a';ctx.fillRect(cx-7*s,cy-23*s,14*s,23*s)}
+let objs=[];trees.forEach(t=>{let p=proj(t.x,t.y);if(p.dep>0)objs.push({p,t,type:'tree'})});chests.forEach(t=>{let p=proj(t.x,t.y);if(p.dep>0)objs.push({p,t,type:'chest'})});objs.sort((u,v)=>v.p.dep-u.p.dep);
+for(let o of objs){let p=o.p,t=o.t,s=Math.max(.35,Math.min(4,p.s/38));if(o.type==='tree'){let hh=60*s*t.s,ww=22*s*t.s;ctx.fillStyle='#33291d';ctx.fillRect(p.x-ww*.15,p.y-hh*.45,ww*.3,hh*.45);ctx.fillStyle='#142b20';ctx.beginPath();ctx.arc(p.x,p.y-hh*.72,ww*.8,0,Math.PI*2);ctx.fill();ctx.fillStyle='#2d5030';ctx.beginPath();ctx.arc(p.x-ww*.3,p.y-hh*.84,ww*.58,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(p.x+ww*.38,p.y-hh*.8,ww*.55,0,Math.PI*2);ctx.fill()}else{let bw=Math.min(90,26*s),bh=Math.min(60,18*s);ctx.fillStyle='#352719';ctx.fillRect(p.x-bw/2,p.y-bh,bw,bh);ctx.fillStyle=t.open?'#59452c':'#99622d';ctx.fillRect(p.x-bw/2+2,p.y-bh+2,bw-4,bh-4);ctx.fillStyle='#d6ad50';ctx.fillRect(p.x-bw/2,p.y-bh,bw,bh*.23);ctx.fillStyle='#e7cf77';ctx.fillRect(p.x-bw*.08,p.y-bh*.72,bw*.16,bh*.22)}}
+ctx.fillStyle='#18291e';ctx.fillRect(W*.25,H*.75,W*.5,H*.25);ctx.strokeStyle='#71825a';ctx.beginPath();ctx.moveTo(W/2,H*.75);ctx.lineTo(W/2,H);ctx.stroke();
+if(Date.now()>toastEnd&&started&&!won)q('.msg').textContent=key?'A chave brilha! Procura o castelo.':'Encontra a chave nos baús!';
+requestAnimationFrame(draw)}
+function updateHUD(){q('.count').textContent='BAÚS: '+opened+'/20';q('.key').textContent='CHAVE: '+(key?'SIM':'NÃO')}
+function tick(){if(started&&!won){a+=turn*.045;let f=-dy,side=dx,speed=.085;x+=Math.sin(a)*f*speed+Math.cos(a)*side*speed;y+=Math.cos(a)*f*speed-Math.sin(a)*side*speed;x=Math.max(-40,Math.min(40,x));y=Math.max(-10,Math.min(40,y));if(key&&Math.hypot(x,y-30)<2.5){won=true;say('Vitória! Chegaste ao castelo!')}}requestAnimationFrame(tick)}
+function setJoy(e){let r=q('.pad').getBoundingClientRect(),vx=e.clientX-r.left-r.width/2,vy=e.clientY-r.top-r.height/2,len=Math.hypot(vx,vy)||1,k=Math.min(1,36/len);dx=vx/36*k;dy=vy/36*k;q('.knob').style.transform=`translate(${dx*36}px,${dy*36}px)`}
+function endJoy(){active=null;dx=dy=0;q('.knob').style.transform='translate(0,0)'}
+q('.pad').addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();active=e.pointerId;q('.pad').setPointerCapture(e.pointerId);setJoy(e)});
+q('.pad').addEventListener('pointermove',e=>{if(active===e.pointerId){e.preventDefault();setJoy(e)}});
+q('.pad').addEventListener('pointerup',e=>{e.preventDefault();endJoy()});q('.pad').addEventListener('pointercancel',endJoy);
+q('.left').addEventListener('pointerdown',e=>{e.preventDefault();turn=-1});q('.right').addEventListener('pointerdown',e=>{e.preventDefault();turn=1});
+window.addEventListener('pointerup',()=>turn=0);window.addEventListener('pointercancel',()=>turn=0);
+q('.open').addEventListener('click',e=>{e.preventDefault();if(!started)return;let n=chests.filter(c=>!c.open).map(c=>({c,d:Math.hypot(c.x-x,c.y-y)})).filter(v=>v.d<3).sort((p,q)=>p.d-q.d)[0];if(!n){say('Aproxima-te de um baú.');return}n.c.open=true;opened++;if(n.c.key){key=true;say('Encontraste a chave amarela!')}else say('Este baú está vazio.');updateHUD()});
+function startGame(e){if(e){e.preventDefault();e.stopPropagation()}if(started)return;reset();started=true;q('.cover').style.display='none';say('A aventura começou!')}
+const play=q('.play');
+// Suporte alargado para rato, toque e navegadores móveis.
+play.addEventListener('pointerdown',startGame);
+play.addEventListener('pointerup',startGame);
+play.addEventListener('touchend',startGame,{passive:false});
+play.addEventListener('click',startGame);
+play.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){startGame(e)}});
+root.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('touchmove',e=>{if(active!==null)e.preventDefault()},{passive:false});
+reset();draw();tick();
+})();
+</script>
+</body>
+</html>
